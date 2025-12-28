@@ -45,6 +45,48 @@ function formatDate(date: Date, mode: Mode): string {
 }
 
 /**
+ * Auto-format date string by adding dashes and colons
+ */
+function autoFormatInput(text: string, mode: Mode, prevText: string): string {
+  // Remove all non-digit characters
+  const digits = text.replace(/\D/g, '');
+
+  // Determine if user is deleting (text got shorter)
+  const isDeleting = text.length < prevText.length;
+
+  // If deleting and cursor is right after a separator, don't auto-add it back
+  if (isDeleting) {
+    return text;
+  }
+
+  let formatted = '';
+
+  if (mode === 'date') {
+    // Format: YYYY-MM-DD
+    for (let i = 0; i < digits.length && i < 8; i++) {
+      if (i === 4 || i === 6) {
+        formatted += '-';
+      }
+      formatted += digits[i];
+    }
+  } else {
+    // Format: YYYY-MM-DD HH:mm
+    for (let i = 0; i < digits.length && i < 12; i++) {
+      if (i === 4 || i === 6) {
+        formatted += '-';
+      } else if (i === 8) {
+        formatted += ' ';
+      } else if (i === 10) {
+        formatted += ':';
+      }
+      formatted += digits[i];
+    }
+  }
+
+  return formatted;
+}
+
+/**
  * Parse and validate date string using dayjs
  */
 function parseAndValidateDate(text: string, mode: Mode): ValidationResult {
@@ -56,7 +98,7 @@ function parseAndValidateDate(text: string, mode: Mode): ValidationResult {
   const parsed = dayjs(text, format, true);
 
   if (!parsed.isValid()) {
-    const expectedFormat = mode === 'date' ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm';
+    const expectedFormat = mode === 'date' ? DATE_FORMAT : DATETIME_FORMAT;
     return {
       isValid: false,
       error: `Invalid format. Expected: ${expectedFormat}`,
@@ -119,7 +161,7 @@ export function UniversalDateTimeInput({
     if (text !== formatted && !touched) {
       setText(formatted);
     }
-  }, [value, mode]);
+  }, [value, mode, text, touched]);
 
   const openPicker = () => {
     setTempDate(value);
@@ -169,11 +211,20 @@ export function UniversalDateTimeInput({
   };
 
   const handleTextChange = (inputText: string) => {
-    setText(inputText);
+    // Auto-format the input
+    const formatted = autoFormatInput(inputText, mode, text);
+    setText(formatted);
     setTouched(true);
 
+    // Only validate if we have enough characters
+    const requiredLength = mode === 'date' ? 10 : 16;
+    if (formatted.length < requiredLength) {
+      setError(null);
+      return;
+    }
+
     // Validate input
-    const validation = parseAndValidateDate(inputText, mode);
+    const validation = parseAndValidateDate(formatted, mode);
 
     if (!validation.isValid) {
       setError(validation.error);
@@ -181,7 +232,7 @@ export function UniversalDateTimeInput({
     }
 
     // Parse and update if valid
-    const parsed = parseDate(inputText, mode);
+    const parsed = parseDate(formatted, mode);
     if (parsed) {
       onChange(parsed);
       setError(null);
@@ -191,9 +242,10 @@ export function UniversalDateTimeInput({
   const handleBlur = () => {
     setTouched(true);
 
-    // If there's an error, revert to last valid value
-    if (error) {
+    // If there's an error or incomplete input, revert to last valid value
+    if (error || text.length < (mode === 'date' ? 10 : 16)) {
       setText(formatDate(value, mode));
+      setError(null);
     }
   };
 
@@ -202,11 +254,11 @@ export function UniversalDateTimeInput({
   return (
     <View style={styles.container}>
       <View
-        style={[
+        style={StyleSheet.flatten([
           styles.inputContainer,
           error && touched && styles.inputContainerError,
           style,
-        ]}
+        ])}
       >
         <TextInput
           value={text}
@@ -215,9 +267,10 @@ export function UniversalDateTimeInput({
           placeholder={placeholder || defaultPlaceholder}
           placeholderTextColor="#999"
           style={styles.input}
-          keyboardType="numbers-and-punctuation"
+          keyboardType="number-pad"
           autoCapitalize="none"
           autoCorrect={false}
+          maxLength={mode === 'date' ? 10 : 16}
         />
         <Pressable onPress={openPicker} style={styles.iconButton} hitSlop={8}>
           <Ionicons
@@ -229,7 +282,9 @@ export function UniversalDateTimeInput({
       </View>
 
       {error && touched && (
-        <Text style={[styles.errorText, errorStyle]}>{error}</Text>
+        <Text style={StyleSheet.flatten([styles.errorText, errorStyle])}>
+          {error}
+        </Text>
       )}
 
       {show && (
